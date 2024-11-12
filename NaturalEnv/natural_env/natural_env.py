@@ -88,5 +88,84 @@ class raw_env(SimpleEnv, EzPickle):
 env = make_env(raw_env)
 parallel_env = parallel_wrapper_fn(env)
 
+
 class Scenario(BaseScenario):
     def make_world(self, num_good, num_adversaries, num_obstacles, num_food, num_forests):
+        world = World()
+
+        # Crear presas (agentes buenos)
+        world.good_agents = [Agent() for _ in range(num_good)]
+        for i, agent in enumerate(world.good_agents):
+            agent.name = f"prey_{i}"
+            agent.color = np.array([0.0, 0.8, 0.0])  # Verde
+            agent.hunger = 100
+            agent.thirst = 100
+            agent.is_prey = True
+            agent.found_food = False
+            agent.found_water = False
+
+        # Crear depredadores (adversarios)
+        world.adversaries = [Agent() for _ in range(num_adversaries)]
+        for i, adversary in enumerate(world.adversaries):
+            adversary.name = f"predator_{i}"
+            adversary.color = np.array([0.8, 0.0, 0.0])  # Rojo
+            adversary.hunger = 100
+            adversary.thirst = 100
+            adversary.is_prey = False
+            adversary.caught_prey = False
+
+        # Crear obstáculos
+        world.obstacles = [Landmark() for _ in range(num_obstacles)]
+        for i, obstacle in enumerate(world.obstacles):
+            obstacle.name = f"obstacle_{i}"
+            obstacle.color = np.array([0.5, 0.5, 0.5])  # Gris
+
+        # Crear fuentes de comida
+        world.food_sources = [Landmark() for _ in range(num_food)]
+        for i, food in enumerate(world.food_sources):
+            food.name = f"food_{i}"
+            food.color = np.array([0.9, 0.9, 0.0])  # Amarillo
+            food.is_food = True
+
+        # Crear fuentes de agua
+        world.water_sources = [Landmark() for _ in range(num_food)]
+        for i, water in enumerate(world.water_sources):
+            water.name = f"water_{i}"
+            water.color = np.array([0.0, 0.0, 1.0])  # Azul
+            water.is_water = True
+
+        # Crear bosques
+        world.forests = [Landmark() for _ in range(num_forests)]
+        for i, forest in enumerate(world.forests):
+            forest.name = f"forest_{i}"
+            forest.color = np.array([0.2, 0.8, 0.2])  # Verde oscuro
+            forest.is_forest = True
+
+        # Añadir todos los objetos al mundo
+        world.landmarks = world.obstacles + world.food_sources + world.water_sources + world.forests
+        world.agents = world.good_agents + world.adversaries
+
+        return world
+
+    def reward(self, agent):
+        # Recompensas para presas
+        if agent.is_prey:
+            if agent.hunger <= 0 or agent.thirst <= 0:
+                return -10  # Muere por hambre o sed (barra de vida)
+            elif agent.found_food or agent.found_water:
+                return +1  # Encuentra comida o agua
+            elif agent.hunger < 20 or agent.thirst < 20:
+                return -1  # Penalización por hambre o sed
+        else:
+            # Recompensas para depredadores
+            if agent.hunger <= 0 or agent.thirst <= 0:
+                return -10  # Muere por hambre o sed
+            elif agent.caught_prey:
+                return +2  # Atrapa a una presa
+            elif agent.hunger < 20 or agent.thirst < 20:
+                return -1  # Penalización por hambre o sed
+        return 0
+
+    def observation(self, agent, world):
+        # Observaciones simples: posición del agente y distancias a los objetos más cercanos
+        return np.array([agent.hunger, agent.thirst])
