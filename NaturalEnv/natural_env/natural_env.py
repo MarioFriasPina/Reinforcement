@@ -156,7 +156,7 @@ class Scenario(BaseScenario):
 
             adversary.silent = True # Makes it so they don't communicate
 
-            adversary.size = 0.02
+            adversary.size = 0.04
             adversary.accel = 3.0
             adversary.max_speed = 1.0
 
