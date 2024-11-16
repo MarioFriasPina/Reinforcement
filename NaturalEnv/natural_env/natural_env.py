@@ -141,10 +141,10 @@ class Scenario(BaseScenario):
             agent.accel = 3.0
             agent.max_speed = 1.0
 
-            agent.hunger = 100 # Maximum amount of hunger
-            agent.hunger_rate = 0.1 # How much hunger is lost per step
-            agent.thirst = 100 # Maximum amount of thirst
-            agent.thirst_rate = 0.1 # How much thirst is lost per step
+            agent.hunger = 50 # Maximum amount of hunger
+            agent.hunger_rate = 5 # How much hunger is lost per step
+            agent.thirst = 50 # Maximum amount of thirst
+            agent.thirst_rate = 5 # How much thirst is lost per step
 
             agent.is_prey = True
 
@@ -160,10 +160,10 @@ class Scenario(BaseScenario):
             adversary.accel = 3.0
             adversary.max_speed = 1.0
 
-            adversary.hunger = 100 # Maximum amount of hunger
-            adversary.hunger_rate = 0.1 # How much hunger is lost per step
-            adversary.thirst = 100
-            adversary.thirst_rate = 0.1 # How much thirst is lost per step
+            adversary.hunger = 50
+            adversary.hunger_rate = 1 # How much hunger is lost per step
+            adversary.thirst = 50
+            adversary.thirst_rate = 5 # How much thirst is lost per step
             
             adversary.is_prey = False
 
@@ -262,16 +262,17 @@ class Scenario(BaseScenario):
     def reset_world(self, world, np_random):
         # Start properties for agents
         for i, agent in enumerate(world.agents):
-            agent.hunger = 100
-            agent.thirst = 100
+            agent.hunger = 50
+            agent.thirst = 50
 
         # set random initial states for agents and landmarks
         for agent in world.agents:
             agent.state.p_pos = np_random.uniform(-1, +1, world.dim_p)
+            agent.last_pos = agent.state.p_pos
             agent.state.p_vel = np.zeros(world.dim_p)
             agent.state.c = np.zeros(world.dim_c)
-            agent.hunger = 100
-            agent.thirst = 100
+            agent.hunger = 50
+            agent.thirst = 50
 
         # set random initial states for landmarks
         for landmark in world.landmarks:
@@ -346,82 +347,41 @@ class Scenario(BaseScenario):
         return ((old_value - old_min) / (old_max - old_min)) * (new_max - new_min) + new_min
 
     def prey_reward(self, agent, world):
-        rew = 0
-        
-        # Increase hunger and thirst depending on hunger_rate and thirst_rate
-        agent.hunger -= agent.hunger_rate
-        agent.thirst -= agent.thirst_rate
+        rew = 0.1
 
-        # Reward for drinking water
-        for water in world.water_sources:
-            if self.is_collision(agent, water):
-                rew += 2
-                agent.thirst = min(100, agent.thirst + 0.5)
+        #Increase hunger and thirst over time
+        agent.hunger = max(0, agent.hunger - agent.hunger_rate)
+        agent.thirst = max(0, agent.thirst - agent.thirst_rate)
 
-            # Reward for getting close to water
-            rew += 0.01 * np.sqrt(np.sum(np.square(water.state.p_pos - agent.state.p_pos)))
-
-        # Reward for eating food
+        # Check if the agent is eating
         for food in world.food_sources:
             if self.is_collision(agent, food):
-                rew += 2
-                agent.hunger = min(100, agent.hunger + 0.5)
-            
-            # Reward for getting close to food
-            rew += 0.01 * np.sqrt(np.sum(np.square(food.state.p_pos - agent.state.p_pos)))
+                rew += 10
+                agent.hunger = min(100, agent.hunger + 30)
 
-        # Reward or penalize for hunger and thirst
-        rew += self.transform(agent.hunger, 0, 100, -1, 1)
+        # Check if the agent is drinking
+        for water in world.water_sources:
+            if self.is_collision(agent, water):
+                rew += 10
+                agent.thirst = min(100, agent.thirst + 30)
 
-        rew += self.transform(agent.thirst, 0, 100, -1, 1)
+        # Penalize for dying
+        if agent.hunger <= 0 or agent.thirst <= 0:
+            rew -= 1000
+            # Teleport the agent to a random location
+            agent.state.p_pos = np.random.uniform(-1, +1, world.dim_p)
+            agent.hunger = 50
+            agent.thirst = 50
 
-        return rew
-        rew = 0
-        shape = False
-        predators = self.predators(world)
-
-        # Penalize for getting too close to predators
-        if shape:
-            for p in predators:
-                rew -= 0.1 * np.sqrt(np.sum(np.square(p.state.p_pos - agent.state.p_pos)))
-
-        # Penalize for dying from predators 
-        if agent.collide:
-            for p in predators:
-                if self.is_collision(p, agent):
-                    rew -= 10
-                    # Teleport the agent to a random location, as it has died
-                    agent.state.p_pos = np.random.uniform(-1, +1, world.dim_p)
-                    agent.state.p_vel = np.zeros(world.dim_p)
-                    agent.state.c = np.zeros(world.dim_c)
-
-                    # Reset hunger and thirst
-                    agent.hunger = 100
-                    agent.thirst = 100
-        
-        # Make it so the agents don't get too far from the boundary
+        # Penalize the agent for getting too far from the origin
         for p in range(world.dim_p):
-            x = abs(agent.state.p_pos[p])
-            rew -= 2 * self.bound(x)
+            rew -= self.bound(np.abs(agent.state.p_pos[p]))
 
-        # Penalize for starving and thirsting
-        rew -= 0.05 * min(100 - agent.hunger, 0)
-        rew -= 0.05 * min(100 - agent.thirst, 0)
+        # Give some reward for exploring the environment
+        if agent.state.p_pos[0] != agent.last_pos[0] or agent.state.p_pos[1] != agent.last_pos[1]:
+            rew += 1
+        agent.last_pos = agent.state.p_pos
 
-        # Reward for getting food
-        for food in world.food_sources:
-            if self.is_collision(agent, food):
-                rew += 1
-                agent.hunger = min(100, agent.hunger + 10)
-
-        # Reward for getting water
-        for water in world.water_sources:
-            if self.is_collision(agent, water):
-                rew += 1
-                agent.thirst = min(100, agent.thirst + 10)
-
-        # Reward for just being alive
-        rew += 0.1
         return rew
     
     def predator_reward(self, agent, world):
