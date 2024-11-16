@@ -341,15 +341,44 @@ class Scenario(BaseScenario):
         if x < 1.0:
             return (x - 0.9) * 10
         return min(np.exp(2 * x - 2), 10)  # 1 + (x - 1) * (x - 1)
+    
+    def transform(self, old_value, old_min, old_max, new_min, new_max):
+        return ((old_value - old_min) / (old_max - old_min)) * (new_max - new_min) + new_min
 
     def prey_reward(self, agent, world):
         rew = 0
-        shape = False
-        predators = self.predators(world)
-
+        
         # Increase hunger and thirst depending on hunger_rate and thirst_rate
         agent.hunger -= agent.hunger_rate
         agent.thirst -= agent.thirst_rate
+
+        # Reward for drinking water
+        for water in world.water_sources:
+            if self.is_collision(agent, water):
+                rew += 2
+                agent.thirst = min(100, agent.thirst + 0.5)
+
+            # Reward for getting close to water
+            rew += 0.01 * np.sqrt(np.sum(np.square(water.state.p_pos - agent.state.p_pos)))
+
+        # Reward for eating food
+        for food in world.food_sources:
+            if self.is_collision(agent, food):
+                rew += 2
+                agent.hunger = min(100, agent.hunger + 0.5)
+            
+            # Reward for getting close to food
+            rew += 0.01 * np.sqrt(np.sum(np.square(food.state.p_pos - agent.state.p_pos)))
+
+        # Reward or penalize for hunger and thirst
+        rew += self.transform(agent.hunger, 0, 100, -1, 1)
+
+        rew += self.transform(agent.thirst, 0, 100, -1, 1)
+
+        return rew
+        rew = 0
+        shape = False
+        predators = self.predators(world)
 
         # Penalize for getting too close to predators
         if shape:
