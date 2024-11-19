@@ -142,9 +142,9 @@ class Scenario(BaseScenario):
             agent.max_speed = 1.0
 
             agent.hunger = 50 # Maximum amount of hunger
-            agent.hunger_rate = 5 # How much hunger is lost per step
+            agent.hunger_rate = 2 # How much hunger is lost per step
             agent.thirst = 50 # Maximum amount of thirst
-            agent.thirst_rate = 5 # How much thirst is lost per step
+            agent.thirst_rate = 2 # How much thirst is lost per step
 
             agent.is_prey = True
 
@@ -347,42 +347,49 @@ class Scenario(BaseScenario):
         return ((old_value - old_min) / (old_max - old_min)) * (new_max - new_min) + new_min
 
     def prey_reward(self, agent, world):
-        rew = 0.1
+        reward = -0.01 
 
-        #Increase hunger and thirst over time
-        agent.hunger = max(0, agent.hunger - agent.hunger_rate)
-        agent.thirst = max(0, agent.thirst - agent.thirst_rate)
+        # Increase hunger and thirst depending on hunger_rate and thirst_rate
+        agent.hunger -= agent.hunger_rate
+        agent.thirst -= agent.thirst_rate
 
-        # Check if the agent is eating
+        # Reward depending on hunger and thirst
+        reward += self.transform(agent.hunger, 0, 100, -1, 1)
+        reward += self.transform(agent.thirst, 0, 100, -1, 1)
+
+        # Restore hunger
         for food in world.food_sources:
             if self.is_collision(agent, food):
-                rew += 10
-                agent.hunger = min(100, agent.hunger + 30)
+                last_hunger = agent.hunger
+                agent.hunger = min(100, agent.hunger + 20)
 
-        # Check if the agent is drinking
+                # Reward depending on how much hunger was restored
+                reward += self.transform(agent.hunger - last_hunger, 0, 20, 0, 2)
+            
+            # Reward for getting close to food
+            #reward += 0.05 * np.sqrt(np.sum(np.square(food.state.p_pos - agent.state.p_pos)))
+
+        # Restore thirst
         for water in world.water_sources:
             if self.is_collision(agent, water):
-                rew += 10
-                agent.thirst = min(100, agent.thirst + 30)
+                last_thirst = agent.thirst
+                agent.thirst = min(100, agent.thirst + 20)
 
-        # Penalize for dying
-        if agent.hunger <= 0 or agent.thirst <= 0:
-            rew -= 1000
-            # Teleport the agent to a random location
-            agent.state.p_pos = np.random.uniform(-1, +1, world.dim_p)
-            agent.hunger = 50
-            agent.thirst = 50
+                # Reward depending on how much thirst was restored
+                reward += self.transform(agent.thirst - last_thirst, 0, 20, 0, 2)
+            
+            # Reward for getting close to water 
+            #reward += 0.05 * np.sqrt(np.sum(np.square(water.state.p_pos - agent.state.p_pos)))
 
-        # Penalize the agent for getting too far from the origin
+        """
+        # Penalize for going outside the boundary
         for p in range(world.dim_p):
-            rew -= self.bound(np.abs(agent.state.p_pos[p]))
+            x = agent.state.p_pos[p]
+            reward -= 2 * self.bound(x)
+        """
+        
 
-        # Give some reward for exploring the environment
-        if agent.state.p_pos[0] != agent.last_pos[0] or agent.state.p_pos[1] != agent.last_pos[1]:
-            rew += 1
-        agent.last_pos = agent.state.p_pos
-
-        return rew
+        return reward
     
     def predator_reward(self, agent, world):
         rew = 0
