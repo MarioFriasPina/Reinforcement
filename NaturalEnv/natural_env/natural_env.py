@@ -310,16 +310,26 @@ class Scenario(BaseScenario):
         """
         return [agent for agent in world.agents if not agent.is_prey]
 
+    # def reward(self, agent, world):
+    #     """
+    #     Returns the main reward
+    #     """
+    #     main_reward = (
+    #         self.predator_reward(agent, world)
+    #         if not agent.is_prey
+    #         else self.prey_reward(agent, world)
+    #     )
+    #     return main_reward
+
     def reward(self, agent, world):
-        """
-        Returns the main reward
-        """
-        main_reward = (
-            self.predator_reward(agent, world)
-            if not agent.is_prey
-            else self.prey_reward(agent, world)
-        )
-        return main_reward
+        """Devuelve una recompensa escalar derivada del vector multiobjetivo."""
+        reward_vector = self.pareto_reward(agent, world)  # Calcula el vector multiobjetivo
+        # Convierte el vector a escalar usando una suma ponderada
+        scalar_reward = 0.5 * reward_vector[0] + 0.5 * reward_vector[1]  # Ponderaciones iguales
+        agent.reward_vector = reward_vector  # Guarda el vector en el agente para análisis posterior
+        return scalar_reward
+
+
 
     def outside_boundary(self, agent):
         """
@@ -344,96 +354,122 @@ class Scenario(BaseScenario):
 
     def prey_reward(self, agent, world):
         rew = 0
-        shape = False
-        predators = self.predators(world)
 
-        # Increase hunger and thirst depending on hunger_rate and thirst_rate
-        agent.hunger -= agent.hunger_rate
-        agent.thirst -= agent.thirst_rate
+        # 1. Incentivar la supervivencia
+        # Pequeña recompensa constante por mantenerse vivo
+        rew += 0.5
 
-        # Penalize for getting too close to predators
-        if shape:
-            for p in predators:
-                rew -= 0.1 * np.sqrt(np.sum(np.square(p.state.p_pos - agent.state.p_pos)))
+        # 2. Penalizar levemente por hambre y sed
+        # Menor penalización para evitar que se acumulen grandes valores negativos
+        hunger_penalty = 0.001 * (100 - agent.hunger)
+        thirst_penalty = 0.001 * (100 - agent.thirst)
+        rew -= hunger_penalty
+        rew -= thirst_penalty
 
-        # Penalize for dying from predators 
-        if agent.collide:
-            for p in predators:
-                if self.is_collision(p, agent):
-                    rew -= 10
-                    # Teleport the agent to a random location, as it has died
-                    agent.state.p_pos = np.random.uniform(-1, +1, world.dim_p)
-                    agent.state.p_vel = np.zeros(world.dim_p)
-                    agent.state.c = np.zeros(world.dim_c)
-
-                    # Reset hunger and thirst
-                    agent.hunger = 100
-                    agent.thirst = 100
-        
-        # Make it so the agents don't get too far from the boundary
-        for p in range(world.dim_p):
-            x = abs(agent.state.p_pos[p])
-            rew -= 2 * self.bound(x)
-
-        # Penalize for starving and thirsting
-        rew -= 0.05 * min(100 - agent.hunger, 0)
-        rew -= 0.05 * min(100 - agent.thirst, 0)
-
-        # Reward for getting food
+        # 3. Recompensa por encontrar comida y agua
         for food in world.food_sources:
             if self.is_collision(agent, food):
-                rew += 1
-                agent.hunger = min(100, agent.hunger + 10)
+                rew += 10  # Aumentamos la recompensa para que sea un incentivo fuerte
+                agent.hunger = min(100, agent.hunger + 30)
 
-        # Reward for getting water
         for water in world.water_sources:
             if self.is_collision(agent, water):
-                rew += 1
-                agent.thirst = min(100, agent.thirst + 10)
+                rew += 10  # Aumentamos la recompensa para que sea un incentivo fuerte
+                agent.thirst = min(100, agent.thirst + 30)
 
-        # Reward for just being alive
-        rew += 0.1
+        # 4. Penalizar por estar cerca de los límites del entorno
+        boundary_penalty = 0
+        for p in range(world.dim_p):
+            x = abs(agent.state.p_pos[p])
+            if x > 0.9:  # Solo penalizamos si está muy cerca del límite
+                boundary_penalty += 0.5 * (x - 0.9)
+
+        rew -= boundary_penalty
+
+        # 5. Limitar la recompensa negativa acumulada
+        # Esto ayuda a estabilizar el entrenamiento
+        rew = max(rew, -50)
+
         return rew
-    
-    def predator_reward(self, agent, world):
-        rew = 0
-        shape = True
-        preys = self.preys(world)
 
-        # Increase hunger and thirst depending on hunger_rate and thirst_rate
+    
+    # def predator_reward(self, agent, world):
+    #     rew = 0
+    #     shape = True
+    #     preys = self.preys(world)
+
+    #     # Increase hunger and thirst depending on hunger_rate and thirst_rate
+    #     agent.hunger -= agent.hunger_rate
+    #     agent.thirst -= agent.thirst_rate
+
+    #     # Penalize for getting too close to preys
+    #     if shape:
+    #         for p in preys:
+    #             rew -= 0.1 * np.sqrt(np.sum(np.square(p.state.p_pos - agent.state.p_pos)))
+
+    #     # Reward for killing preys
+    #     if agent.collide:
+    #         for p in preys:
+    #             if self.is_collision(p, agent):
+    #                 rew += 10
+    #                 agent.hunger = min(100, agent.hunger + 20)
+
+    #     # Restore thirst
+    #     for water in world.water_sources:
+    #         if self.is_collision(agent, water):
+    #             rew += 0.5
+    #             agent.thirst = min(100, agent.thirst + 0.5)
+        
+    #     # Make it so the agents don't get too far from the boundary
+    #     for p in range(world.dim_p):
+    #         x = abs(agent.state.p_pos[p])
+    #         rew -= 1 * self.bound(x)
+
+    #     # Penalize for starving and thirsting
+    #     rew -= 0.05 * min(100 - agent.hunger, 0)
+    #     rew -= 0.05 * min(100 - agent.thirst, 0)
+
+    #     # Reward for just being alive
+    #     rew += 0.1
+
+    #     rew = np.clip(rew, -10, 10)
+    #     return rew
+
+    def pareto_reward(self, agent, world):
+        """Calcula la recompensa multiobjetivo para la presa."""
+        reward_resources = 0
+        reward_survival = 0
+
+        # Penalización por hambre y sed
         agent.hunger -= agent.hunger_rate
         agent.thirst -= agent.thirst_rate
 
-        # Penalize for getting too close to preys
-        if shape:
-            for p in preys:
-                rew -= 0.1 * np.sqrt(np.sum(np.square(p.state.p_pos - agent.state.p_pos)))
+        # Recompensa por encontrar comida
+        for food in world.food_sources:
+            if self.is_collision(agent, food):
+                reward_resources += 10
+                agent.hunger = min(100, agent.hunger + 20)
 
-        # Reward for killing preys
-        if agent.collide:
-            for p in preys:
-                if self.is_collision(p, agent):
-                    rew += 10
-                    agent.hunger = min(100, agent.hunger + 20)
-
-        # Restore thirst
+        # Recompensa por encontrar agua
         for water in world.water_sources:
             if self.is_collision(agent, water):
-                rew += 0.5
-                agent.thirst = min(100, agent.thirst + 0.5)
-        
-        # Make it so the agents don't get too far from the boundary
+                reward_resources += 10
+                agent.thirst = min(100, agent.thirst + 20)
+
+        # Penalización por hambre y sed extrema
+        reward_survival -= 0.05 * (max(0, 100 - agent.hunger) + max(0, 100 - agent.thirst))
+
+        # Penalización por salirse de los límites del entorno
         for p in range(world.dim_p):
             x = abs(agent.state.p_pos[p])
-            rew -= 1 * self.bound(x)
+            reward_survival -= 0.5 * self.bound(x)
 
-        # Penalize for starving and thirsting
-        rew -= 0.05 * min(100 - agent.hunger, 0)
-        rew -= 0.05 * min(100 - agent.thirst, 0)
+        # Recompensa por mantenerse vivo
+        reward_survival += 0.1
 
-        # Reward for just being alive
-        rew += 0.1
-        return rew
+        # Devolver un vector de recompensas
+        return np.array([reward_resources, reward_survival])
+
 
     def observation2(self, agent, world):
         # get positions of all entities in this agent's reference frame
@@ -532,12 +568,17 @@ class Scenario(BaseScenario):
                 if self.is_collision(prey, forest):
                     prey_pos[i] = np.array([forest.state.p_pos[0], forest.state.p_pos[1]])
 
+        # Normalizar el hambre y la sed al rango [0, 1]
+        hunger = agent.hunger / 100.0
+        thirst = agent.thirst / 100.0
+
         # Returns the state of the agent, and its environment
         return np.concatenate(
             # Agent information
             [agent.state.p_vel]
             + [agent.state.p_pos]
-            + [np.array([agent.hunger, agent.thirst])]
+        
+            + [np.array([hunger, thirst])]
             + [np.array([in_forest, consuming])]
 
             # Entity information
