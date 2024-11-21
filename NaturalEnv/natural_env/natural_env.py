@@ -141,10 +141,10 @@ class Scenario(BaseScenario):
             agent.accel = 3.0
             agent.max_speed = 1.0
 
-            agent.hunger = 100 # Maximum amount of hunger
-            agent.hunger_rate = 0.1 # How much hunger is lost per step
-            agent.thirst = 100 # Maximum amount of thirst
-            agent.thirst_rate = 0.1 # How much thirst is lost per step
+            agent.hunger = 50 # Maximum amount of hunger
+            agent.hunger_rate = 2 # How much hunger is lost per step
+            agent.thirst = 50 # Maximum amount of thirst
+            agent.thirst_rate = 2 # How much thirst is lost per step
 
             agent.is_prey = True
 
@@ -160,10 +160,10 @@ class Scenario(BaseScenario):
             adversary.accel = 3.0
             adversary.max_speed = 1.0
 
-            adversary.hunger = 100 # Maximum amount of hunger
-            adversary.hunger_rate = 0.1 # How much hunger is lost per step
-            adversary.thirst = 100
-            adversary.thirst_rate = 0.1 # How much thirst is lost per step
+            adversary.hunger = 50
+            adversary.hunger_rate = 1 # How much hunger is lost per step
+            adversary.thirst = 50
+            adversary.thirst_rate = 5 # How much thirst is lost per step
             
             adversary.is_prey = False
 
@@ -262,16 +262,17 @@ class Scenario(BaseScenario):
     def reset_world(self, world, np_random):
         # Start properties for agents
         for i, agent in enumerate(world.agents):
-            agent.hunger = 100
-            agent.thirst = 100
+            agent.hunger = 50
+            agent.thirst = 50
 
         # set random initial states for agents and landmarks
         for agent in world.agents:
             agent.state.p_pos = np_random.uniform(-1, +1, world.dim_p)
+            agent.last_pos = agent.state.p_pos
             agent.state.p_vel = np.zeros(world.dim_p)
             agent.state.c = np.zeros(world.dim_c)
-            agent.hunger = 100
-            agent.thirst = 100
+            agent.hunger = 50
+            agent.thirst = 50
 
         # set random initial states for landmarks
         for landmark in world.landmarks:
@@ -351,6 +352,9 @@ class Scenario(BaseScenario):
         if x < 1.0:
             return (x - 0.9) * 10
         return min(np.exp(2 * x - 2), 10)  # 1 + (x - 1) * (x - 1)
+    
+    def transform(self, old_value, old_min, old_max, new_min, new_max):
+        return ((old_value - old_min) / (old_max - old_min)) * (new_max - new_min) + new_min
 
     def prey_reward(self, agent, world):
         rew = 0
